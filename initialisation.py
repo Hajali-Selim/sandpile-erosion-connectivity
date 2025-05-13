@@ -2,7 +2,7 @@ import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from deepcopy import deepcopy
+from copy import deepcopy
 from itertools import product, combinations
 
 def matrix_to_dict(matrix: np.ndarray):
@@ -37,7 +37,7 @@ def adapt_lattice_to_topography(g: nx.DiGraph, t: dict, dyn: str):
     '''
     Adapt lattice to topography for probabilistic or deterministic descent sandpile simulations.
     Inputs
-        g: baseline lattice, type=nx.diGraph
+        g: baseline lattice, type=nx.DiGraph
         t: landscape topography, type=dict
         dyn: probabilistic or deterministic dynamics selection, type=str
     Outputs
@@ -57,7 +57,7 @@ def adapt_lattice_to_topography(g: nx.DiGraph, t: dict, dyn: str):
     else:
         print('Error: Wrong type of dynamics, please enter either \'probabilistic\' or \'deterministic\' (third input variable).')
 
-def identify_steepest_direction(g_prob: nx.diGraph, t: dict):
+def identify_steepest_direction(g_prob: nx.DiGraph, t: dict):
     '''
     Identify the single successor of each node according to the steepest descent direction.
     Inputs
@@ -95,7 +95,7 @@ def probabilistic_to_deterministic(g_prob: nx.DiGraph, steep: dict):
 
 ### Simulation functions
 
-def declare_simulation_variables(g):
+def declare_simulation_variables(g: nx.DiGraph):
     '''
     Initialise all the variables required for a sandpile simulation.
     Input
@@ -111,12 +111,12 @@ def declare_simulation_variables(g):
     state_, current_av_, branches_, new_active_, size_ = {i:0 for i in g}, {}, [], {}, [], []
     return state_, current_av_, branches_, new_active_, size_
 
-def create_node_coupling_dictionary(g):
+def create_node_coupling_dictionary(g: nx.DiGraph):
     '''
     Identify the existence of paths allowing particle exchange between source (key) and target (value) nodes.
     This function is computationally expensive and only required for connectivity analysis, i.e. computing SC and FC.
     Input
-        g: landscape lattice, type=nx.DiGraph()
+        g: landscape lattice, type=nx.DiGraph
     Output
         coupling: tracks coupling between pairs of nodes (path existence), type=dict
     '''
