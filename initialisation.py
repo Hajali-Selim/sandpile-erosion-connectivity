@@ -47,7 +47,7 @@ def adapt_lattice_to_topography(g: nx.DiGraph, t: dict, dyn: str):
     g_prob.add_nodes_from(g.nodes)
     for i in g:
         for j in g.successors(i):
-            if e[i] >= e[j]:
+            if t[i] >= t[j]:
                 g_prob.add_edge(i,j)
     if dyn == 'probabilistic':
         return g_prob
@@ -108,7 +108,7 @@ def declare_simulation_variables(g: nx.DiGraph):
         new_av_: nodes having received particles during the last time step, type=list
         size_: list of avalanche sizes having occured during the entire simulation, type=list
     '''
-    state_, current_av_, branches_, new_active_, size_ = {i:0 for i in g}, {}, [], {}, [], []
+    state_, current_av_, branches_, new_active_, size_ = {i:0 for i in g}, {}, {}, [], []
     return state_, current_av_, branches_, new_active_, size_
 
 def create_node_coupling_dictionary(g: nx.DiGraph):
