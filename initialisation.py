@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import random
 from copy import deepcopy
 from itertools import product, combinations
+from collections import Counter
+from scipy.stats import pearsonr
 
 def matrix_to_dict(matrix: np.ndarray):
     '''
@@ -23,39 +25,49 @@ def generate_baseline_lattice(width: int, height: int):
         height: number of nodes per column, type=int
     Outputs
         g: 2D lattice, type=nx.diGraph
-        bulk_nodes: list of non-outflow nodes, type=list
+        bulk_: list of non-outflow nodes, type=list
     '''
     g = nx.grid_2d_graph(width,height)
     g.remove_edges_from([((i1,0),(i1+1,0)) for i1 in range(width-1)])
     g = g.to_directed()
     g.remove_edges_from([((i1,i2),(i1,i2+1)) for i1,i2 in product(range(width), range(height-1))])
     g.add_edges_from([((0,i2),(width-1,i2)) for i2 in range(1,height)]+[((width-1,i2),(0,i2)) for i2 in range(1,height)])
-    bulk_nodes = [i for i in g if i not in [(i, 0) for i in range(width)]]
-    return g, bulk_nodes
-
-def adapt_lattice_to_topography(g: nx.DiGraph, t: dict, dyn: str):
+    bulk_ = [i for i in g if i not in [(i, 0) for i in range(width)]]
+    return g, bulk_
+    
+def adapt_lattice_to_topography(g, t, bulk_nodes): # This seems to work, g_prob has the correct number of edges with their normalised slopes as edge weights
     '''
-    Adapt lattice to topography for probabilistic or deterministic descent sandpile simulations.
+    Create lattices adapted to the topography for probabilistic or deterministic descent dynamics, and computes the propagation probabilities out of each node, and slope differences for each edge for future simulations.
     Inputs
         g: baseline lattice, type=nx.DiGraph
         t: landscape topography, type=dict
-        dyn: probabilistic or deterministic dynamics selection, type=str
     Outputs
-        g_prob: lattice adapted to topography
+        g_prob: lattice for probabilistic dynamics
+        propagation_prob: normalised propagation probability (value) from each node (key) to its successors, for probabilistic dynamics
+        edge_slope: normalised propagation probability (value) of each edge (key), for probabilistic dynamics
+        g_deter: lattice for deterministic dynamics
+        propagation_prob_deter: normalised propagation probability (value) from each node (key) to its successors, for deterministic dynamics (trivial)
+        edge_slope_deter: normalised propagation probability (value) of each edge (key), for deterministic dynamics (trivial)
     '''
-    g_prob = nx.DiGraph()
+    g_prob, g_deter, propagation_prob, edge_slope = nx.DiGraph(), nx.DiGraph(), {}, {}
     g_prob.add_nodes_from(g.nodes)
-    for i in g:
-        for j in g.successors(i):
-            if t[i] >= t[j]:
-                g_prob.add_edge(i,j)
-    if dyn == 'probabilistic':
-        return g_prob
-    elif dyn == 'deterministic':
-        steep = identify_steepest_direction(g_prob, t)
-        return probabilistic_to_deterministic(g_prob, steep)
-    else:
-        print('Error: Wrong type of dynamics, please enter either \'probabilistic\' or \'deterministic\' (third input variable).')
+    g_deter.add_nodes_from(g.nodes)
+    for i in bulk_nodes:
+        next_nodes = [j for j in g.successors(i) if t[i]>t[j]]
+        propagation_prob[i] = [t[i]-t[j] for j in next_nodes]
+        propagation_prob[i] = [e/sum(propagation_prob[i]) for e in propagation_prob[i]]
+        steepest_next = next_nodes[np.argmax(propagation_prob[i])]
+        g_deter.add_edge(i, steepest_next)
+        for k in range(len(next_nodes)):
+            edge_slope[i, next_nodes[k]] = propagation_prob[i][k]
+        if g.out_degree(i)==1:
+            propagation_prob[i] == [1]
+            edge_slope[i, list(g.successors(i))[0]] = 1
+    for i,j in edge_slope:
+        g_prob.add_edge(i, j, weight=edge_slope[i,j])
+    propagation_prob_deter = {i:[1] for i in bulk_nodes}
+    edge_slope_deter = {(i,j):1 for i,j in g_deter.edges}
+    return g_prob, propagation_prob, edge_slope, g_deter, propagation_prob_deter, edge_slope_deter
 
 def identify_steepest_direction(g_prob: nx.DiGraph, t: dict):
     '''
@@ -71,11 +83,7 @@ def identify_steepest_direction(g_prob: nx.DiGraph, t: dict):
         next_nodes = list(g_prob.successors(i))
         if len(next_nodes):
             elev_nodes = np.array([t[k] for k in next_nodes])
-            min_elev = np.where(elev_nodes==np.min(elev_nodes))[0]
-            if len(min_elev)>1:
-                steep[i] = (i[0],i[1]-1)
-            else:
-                steep[i] = next_nodes[min_elev[0]]
+            steep[i] = next_nodes[np.argmin(elev_nodes)]
     return steep
 
 def probabilistic_to_deterministic(g_prob: nx.DiGraph, steep: dict):
@@ -107,6 +115,7 @@ def declare_simulation_variables(g: nx.DiGraph):
         branches_: length of branches described by the currently occuring avalanche, type=dict
         new_av_: nodes having received particles during the last time step, type=list
         size_: list of avalanche sizes having occured during the entire simulation, type=list
+        exit_: number of particles having exited the landscae during the entire simulation, type=int
     '''
     state_, current_av_, branches_, new_active_, size_ = {i:0 for i in g}, {}, {}, [], []
     return state_, current_av_, branches_, new_active_, size_
@@ -131,27 +140,29 @@ def create_node_coupling_dictionary(g: nx.DiGraph):
 
 def compute_slope_differences(g: nx.DiGraph, t: dict):
     '''
-    Compute two variables required for probabilistic simulations (propagation_per_node) and the computation of structural connectivity (slope_per_edge)
+    Compute two variables required for probabilistic simulations (propagation_per_node) and the computation of structural connectivity (edge_slope)
     Inputs
         g: landscape lattice, type=nx.DiGraph
         t: landscape topography, type=dict
     Outputs
-        propagation_per_node: associate to each node (key) its list of propagation probabilities (value), type=dict
-        slope_per_edge: associate to each edge (key) its elevation difference (value), type=dict
+        propagation_probability: associate to each node (key) its list of propagation probabilities (value), type=dict
+        edge_slope: associate to each edge (key) its elevation difference (value), type=dict
     '''
-    propagation_per_node, slope_per_edge = {i:[t[i]-t[j] for j in g.successors(i) if t[i]>t[j]] for i in g}, {i:[max(0, t[i]-t[j]) for j in g.successors(i)] for i in g}
+    propagation_probability, edge_slope = {i:[t[i]-t[j] for j in g.successors(i) if t[i]>t[j]] for i in g}, {(e1,e2):[0] for e1,e2 in g.edges}
     for i in g:
+        edge_slope[i] = [edge_slope[i][j]/sum(edge_slope[i].values()) for j in edge_slope[i]]
         if g.out_degree(i)==1:
-            #if slope_per_edge[i] == [0] and g.out_degree(i):
-            propagation_per_node[i], slope_per_edge[(i, list(g.successors(i))[0])] = [1], 1
-    return propagation_per_node, slope_per_edge
-    
-def compute_SC(g: nx.DiGraph, slope_per_edge: dict):
+            propagation_probability[i] = [1]
+            if list(edge_slope[i]) == 1:
+                edge_slope[(i, list(g.successors(i))[0])] = 1
+    return propagation_probability, edge_slope
+
+def compute_SC(g: nx.DiGraph, edge_slope: dict):
     '''
     Compute structural connectivity
     Inputs
         g: landscape lattice, type=nx.DiGraph
-        slope_per_edge: associate to each edge (key) its elevation difference (value), type=dict
+        edge_slope: associate to each edge (key) its elevation difference (value), type=dict
     Outputs
         sc: landscape structural connectivity, type=dict
     '''
@@ -161,10 +172,10 @@ def compute_SC(g: nx.DiGraph, slope_per_edge: dict):
         next_layer_successors, same_layer_successors = {v1:[v2 for v2 in g.successors(v1) if v2[1]==v1[1]-1] for v1 in [(i,j) for i in range(20)]}, {v1:[v2 for v2 in g.successors(v1) if v2[1]==v1[1]] for v1 in [(i,j) for i in range(20)]}
         for i in range(20):
             v1 = (i,j)
-            gconn.add_weighted_edges_from([(v1,v2,slope_per_edge[(v1,v2)]) for v2 in next_layer_successors[v1]])
+            gconn.add_weighted_edges_from([(v1,v2,edge_slope[(v1,v2)]) for v2 in next_layer_successors[v1]])
             gconn.add_weighted_edges_from(sum([[(v1,v3,gconn[v2][v3]['weight']) for v3 in gconn.successors(v2)] for v2 in next_layer_successors[v1]],[]))
         for v1 in sort_layer(same_layer_successors):
-            gconn.add_weighted_edges_from([(v1,v2,slope_per_edge[(v1,v2)]) for v2 in same_layer_successors[v1]])
+            gconn.add_weighted_edges_from([(v1,v2,edge_slope[(v1,v2)]) for v2 in same_layer_successors[v1]])
             gconn.add_weighted_edges_from(sum([[(v1,v3,gconn[v2][v3]['weight']) for v3 in gconn.successors(v2)] for v2 in same_layer_successors[v1]],[]))
     sc = {node:gconn.in_degree(node, weight='weight') for node in g}
     return sc
@@ -191,7 +202,7 @@ def compute_FC(coupling):
     '''
     fc = {}
     for i in coupling:
-        fci = sum(coupling[i],[])
+        fci = sum(coupling[i].values(),[])
         if len(fci):
             fc[i] = np.var(fci)
         else:
@@ -294,4 +305,50 @@ def generate_topography(g: nx.DiGraph, tmat: dict, v: dict, a: float, a_std: flo
     t_gen = {(i,j): v_score[i,j]*a + (2*random.random()-1)*a_std/2 + b + extended_plane[j] for i,j in g}
     return t_gen
 
+# Simulation functions
+
+def sandpile(g, v, propagation_probability, state, coupling, current_av, branches, old_active, size, bulk_nodes):
+    unstable, new_active = [node for node in old_active if state[node] >= g.out_degree(node)], []
+    if len(unstable):
+        # Relaxation phase
+        for node1 in unstable:
+            nb_partcl, state[node1] = state[node1], 0
+            if len(current_av) == 0:
+                current_av[node1] = 0
+            if len(list(g.successors(node1))):
+                spreading_scheme = Counter(random.choices(list(g.successors((node1))), weights=propagation_probability[(node1)], k=nb_partcl))
+                for node2 in spreading_scheme:
+                    if g.out_degree(node2):
+                        state[node2] += np.sum(np.random.rand(spreading_scheme[node2]) > v[node2]/2)
+                        current_av[node2] = current_av[node1]+1
+                        if node2 not in branches:
+                            branches[node2] = [node1]
+                        elif node1 not in branches[node2]:
+                            branches[node2].append(node1)
+                        # Record all the previous sources of the new incident node (at least, from a new path)
+                        origin, all_sources, sources = list(current_av.keys())[0], [node1], [node1]
+                        while origin not in sources:
+                            new_sources = []
+                            for source in sources:
+                                new_sources += branches[source]
+                            all_sources += new_sources
+                            sources = new_sources
+                        # Record couplings between new incident node and all its previous sources
+                        for source in list(set(all_sources)): # collapse 'all_sources' to avoid redundance of nodes
+                            coupling[source][node2].append(current_av[node2]-current_av[source])
+                    if node2 not in new_active:
+                        new_active.append(node2)
+    else:
+        # Accumulation phase
+        if len(current_av):
+            size.append(len(current_av))
+        current_av, branches = {}, {}
+        node2 = random.choice(bulk_nodes)
+        if random.random() > v[node2]/2:
+            state[node2] += 1
+            new_active.append(node2)
+    return state, coupling, current_av, branches, new_active, size
+
+def SCFC(sc, fc, bulk_):
+    return pearsonr(list(sc[i] for i in bulk_), list(fc[i] for i in bulk_))[0]
 

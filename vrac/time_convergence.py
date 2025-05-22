@@ -9,10 +9,12 @@ for k in range(4):
 
 vP, eP, VP, EP, DSCHGP, SEDTRP = np.zeros(4, np.ndarray), np.zeros(4, np.ndarray), np.zeros(4, dict), np.zeros(4, dict), np.zeros(4, dict), np.zeros(4, dict)
 for k in range(4):
-    vP[k], eP[k], VP[k], EP[k], DSCHGP[k], SEDTRP[k] = np.loadtxt('MAHLERAN_FC/p'+str(k+1)+'vegcover.asc', skiprows=6)[1+int(k==3):-1,1:-1], np.loadtxt('MAHLERAN_FC/p'+str(k+1)+'dem.asc', skiprows=6)[1:-1,1:-1], {}, {}, {}, {}
+    vP[k], eP[k], VP[k], EP[k], DSCHGP[k], SEDTRP[k] = np.loadtxt('MAHLERAN_FC/p'+str(k+1)+'vegcover.asc', skiprows=6)[1:-1,1:-1], np.loadtxt('MAHLERAN_FC/p'+str(k+1)+'dem.asc', skiprows=6)[1:-1,1:-1], {}, {}, {}, {}
     for i in range(60):
         for j in range(20):
             VP[k][(j,59-i)], EP[k][(j,59-i)], DSCHGP[k][(j,59-i)], SEDTRP[k][(j,59-i)] = vP[k][i,j]/100, eP[k][i,j], DSCHG[k][i,j], SEDTR[k][i,j]
+
+Ceff[3]=init(Geff[3])[1]
 
 Geff = [eff_lattice(G,EP[k]) for k in range(4)]
 Gst = [eff_steep(Geff[k],estp(Geff[k],EP[k])) for k in range(4)]
