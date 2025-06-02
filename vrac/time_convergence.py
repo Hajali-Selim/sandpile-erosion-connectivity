@@ -16,15 +16,18 @@ for k in range(4):
 
 Ceff[3]=init(Geff[3])[1]
 
-Geff = [eff_lattice(G,EP[k]) for k in range(4)]
-Gst = [eff_steep(Geff[k],estp(Geff[k],EP[k])) for k in range(4)]
-Ceff = [init(Geff[k])[1] for k in range(4)]
-Cst = [init(Gst[k])[1] for k in range(4)]
-Epm_eff = [eprob_map(Geff[k],EP[k]) for k in range(4)]
+Geff = [eff_lattice(G,EP[0])]+[0,0]+[eff_lattice(G,EP[3])]
+Gst = [eff_steep(Geff[0],estp(Geff[0],EP[0]))]+[0,0]+[eff_steep(Geff[3],estp(Geff[3],EP[3]))]
+Ceff = [init(Geff[0])[1]]+[0,0]+[init(Geff[3])[1]]
+Cst = [init(Gst[0])[1]]+[0,0]+[init(Gst[3])[1]]
+Epm_eff = [eprob_map(Geff[0],EP[0])]+[0,0]+[eprob_map(Geff[3],EP[3])]
 #Epm_st = [eprob_map(Gst[k],EP[k]) for k in range(4)]
-Epm_st = [{(i,j):1 for i,j in Gst[k].edges} for k in range(4)]
-SCE_eff = [SC_EDGE(Geff[k],Epm_eff[k]) for k in range(4)]
-SCE_st = [SC_EDGE(Gst[k],Epm_st[k]) for k in range(4)]
+Epm_st = [{(i,j):1 for i,j in Gst[0].edges}]+[0,0]+[{(i,j):1 for i,j in Gst[3].edges}]
+SCE_eff = [SC_EDGE(Geff[0],Epm_eff[0])]+[0,0]+[SC_EDGE(Geff[3],Epm_eff[3])]
+SCE_st = [SC_EDGE(Gst[0],Epm_st[0])]+[0,0]+[SC_EDGE(Gst[3],Epm_st[3])]
+
+Ep = [eprob(Geff[0],EP[0])]+[0,0]+[eprob(Geff[3],EP[3])]
+
 
 Ceff,Cst,SC_st,SC_eff,Ep,Epm_eff,Epm_st = pickle.load(open('time_convergence_data.txt', 'rb'))
 with open('time_convergence_data.txt','wb') as ll:
@@ -48,6 +51,11 @@ SCE_eff = np.array([SC_EDGE(Geff[k],Epm_eff[k]) for k in range(4)])
 
 SCP_eff = pickle.load(open('time_convergence_data_previous.txt','rb'))[3][[0,3]]
 
+
+cnew_from_init = init(gnew)
+pnew = eprob(gnew, eP[3])
+
+
 nb_runs, nb_steps, step_slice = 100, 200000, 1000
 Sizes_eff, SCpFCl_eff, SCeFCv_eff = np.zeros(2, np.ndarray), np.zeros(2, np.ndarray), np.zeros(2, np.ndarray)
 SCeFCl_eff, SCpFCv_eff = np.zeros(2, np.ndarray), np.zeros(2, np.ndarray)
@@ -55,12 +63,14 @@ FCl_eff, FCv_eff = np.zeros(2, np.ndarray), np.zeros(2, np.ndarray)
 for k in range(1,2):
     print('LANDSCAPE N°',3*k+1,'...')
     SCeFCv_eff[k] = np.zeros((nb_runs,int(nb_steps/step_slice)), float)
-    Sizes_eff[k], FCv_eff[k] = np.zeros(nb_runs, list), {node:0 for node in G}, {node:0 for node in G}
+    Sizes_eff[k], FCv_eff[k] = np.zeros(nb_runs, list), {node:0 for node in G}
+    
     for run in range(1,nb_runs):
         print('.. run n°',run)
-        S, C, current, branches, active, Sizes_eff[k][run] = zeros(Ceff[k*3])
+        #S, C, current, branches, active, Sizes_eff[k][run] = zeros(Ceff[k*3])
+        S, C, current, branches, active, _ = zeros(Ctest)
         for step in range(nb_steps+1):
-            S, C, current, branches, active, Sizes_eff[k][run] = sandpile(Geff[k*3], VP[k*3], Ep[k*3], S, C, current, branches, active, Sizes_eff[k][run],not_sinks)
+            S, C, current, branches, active, _ = sandpile_new_form(Geff[3], VP[3], eprob_test, S, C, current, branches, active, _,not_sinks)
             if step % step_slice == 0 and step>0:
                 FCl, FCv = FC_path(C,'len'), FC_path(C,'var')
                 SCpFCl_eff[k][run, int(step/step_slice-1)], SCeFCv_eff[k][run, int(step/step_slice-1)] = SCFC(SCP_eff[k],FCl,not_sinks), SCFC(SCE_eff[k],FCv,not_sinks)

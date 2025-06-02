@@ -609,11 +609,12 @@ def eff_lattice(g, e): # this one (07.02.2025)
     geff.add_nodes_from(g.nodes)
     for i in g:
         for j in g.successors(i):
+            #print(i,j,e[i],e[j])
             if e[i] >= e[j]:
                 geff.add_edge(i,j)
     return geff
 
-def eff_lattice(g, e):
+def eff_lattice(g, e): # last one = robust one (written on 02.06.2025)
     geff = deepcopy(g)
     for i in g:
         for j in g.successors(i):
