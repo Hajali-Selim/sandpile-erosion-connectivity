@@ -169,7 +169,7 @@ for k in [3]:#range(4):
         print('run n°',run)
         S, C, current, branches, active, _ = zeros(Cst[k])
         for step in range(nb_steps+1):
-            S, C, current, branches, active, _, _0 = sandpilest(Gst[k], VP[k], S, C, current, branches, active, _, 0, not_sinks)
+            S, C, current, branches, active, _ = sandpilest(Gst[k], VP[k], S, C, current, branches, active, _, not_sinks)
             if step % step_slice == 0 and step>0:
                 FCv = FC_path(C,'var')
                 SCFCt[k][run, int(step/step_slice-1)], FCtFCwa[k][run, int(step/step_slice-1)], FCtFCsd[k][run, int(step/step_slice-1)] = SCFC(SC_st[k],FCv,not_sinks), SCFC(DSCHGP[k],FCv,not_sinks), SCFC(SEDTRP[k],FCv,not_sinks)
