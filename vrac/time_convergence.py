@@ -14,8 +14,6 @@ for k in range(4):
         for j in range(20):
             VP[k][(j,59-i)], EP[k][(j,59-i)], DSCHGP[k][(j,59-i)], SEDTRP[k][(j,59-i)] = vP[k][i,j]/100, eP[k][i,j], DSCHG[k][i,j], SEDTR[k][i,j]
 
-Ceff[3]=init(Geff[3])[1]
-
 Geff = [eff_lattice(G,EP[0])]+[0,0]+[eff_lattice(G,EP[3])]
 Gst = [eff_steep(Geff[0],estp(Geff[0],EP[0]))]+[0,0]+[eff_steep(Geff[3],estp(Geff[3],EP[3]))]
 Ceff = [init(Geff[0])[1]]+[0,0]+[init(Geff[3])[1]]

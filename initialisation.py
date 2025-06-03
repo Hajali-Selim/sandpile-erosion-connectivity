@@ -1,7 +1,7 @@
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
-import random
+import random, pickle
 from copy import deepcopy
 from itertools import product, combinations
 from collections import Counter
@@ -34,52 +34,9 @@ def generate_baseline_lattice(width: int, height: int):
     g.add_edges_from([((0,i2),(width-1,i2)) for i2 in range(1,height)]+[((width-1,i2),(0,i2)) for i2 in range(1,height)])
     bulk_ = [i for i in g if i not in [(i, 0) for i in range(width)]]
     return g, bulk_
-    
-def adapt_lattice_to_topography(g, t): # This seems to work, g_prob has the correct number of edges with their normalised slopes as edge weights
-    '''
-    Create lattices adapted to the topography for probabilistic or deterministic descent dynamics, and computes the propagation probabilities out of each node, and slope differences for each edge for future simulations.
-    Inputs
-        g: baseline lattice, type=nx.DiGraph
-        t: landscape topography, type=dict
-    Outputs
-        g_prob: lattice for probabilistic dynamics
-        propagation_prob: normalised propagation probability (value) from each node (key) to its successors, for probabilistic dynamics
-        edge_slope: normalised propagation probability (value) of each edge (key), for probabilistic dynamics
-        g_deter: lattice for deterministic dynamics
-        propagation_prob_deter: normalised propagation probability (value) from each node (key) to its successors, for deterministic dynamics (trivial)
-        edge_slope_deter: normalised propagation probability (value) of each edge (key), for deterministic dynamics (trivial)
-    '''
-    g_prob, g_deter, propagation_prob, edge_slope, propagation_prob_deter = nx.DiGraph(), nx.DiGraph(), {}, {}, {}
-    g_prob.add_nodes_from(g.nodes)
-    g_deter.add_nodes_from(g.nodes)
-    for i in g:
-        # Compute propagation probabilities out of node i
-        propagation_prob[i], propagation_prob_deter[i] = [], []
-        next_nodes = [j for j in g.successors(i) if t[i]>t[j]]
-        if len(next_nodes):
-            for j in next_nodes:
-                propagation_prob[i].append(t[i]-t[j])
-            propagation_prob_deter[i] = [1]
-            steepest_next = next_nodes[np.argmax(propagation_prob[i])]
-            g_deter.add_edge(i, steepest_next)
-        #elif len(list(g.successors(i))) == 1:
-        #    propagation_prob[i] = [1]
-        # Compute slope differences for each edge out of node i
-        prob_i = {j:max(0, t[i]-t[j]) for j in g.successors(i)}
-        sum_prob_i = sum(prob_i.values())
-        for j in prob_i:
-            if prob_i[j]:
-                edge_slope[(i,j)] = prob_i[j]/sum_prob_i
-        if prob_i == [0] and len(list(g.successors(i)))==1:
-            edge_slope[(i, list(g.successors(i))[0])] = 1
-    # Create the probabilistic lattice G_prob
-    for i,j in edge_slope:
-        g_prob.add_edge(i, j, weight=edge_slope[i,j])
-    edge_slope_deter = {(i,j):1 for i,j in g_deter.edges} # for deterministic SC calculations
-    return g_prob, propagation_prob, edge_slope, g_deter, propagation_prob_deter, edge_slope_deter
 
 # alternate version, creating G_prob out of edge deletions
-def adapt_lattice_to_topography(g, t): # This seems to work, g_prob has the correct number of edges with their normalised slopes as edge weights
+def adapt_lattice_to_topography(g: nx.DiGraph, t: dict): # This seems to work, g_prob has the correct number of edges with their normalised slopes as edge weights
     '''
     Create lattices adapted to the topography for probabilistic or deterministic descent dynamics, and computes the propagation probabilities out of each node, and slope differences for each edge for future simulations.
     Inputs
@@ -93,43 +50,60 @@ def adapt_lattice_to_topography(g, t): # This seems to work, g_prob has the corr
         propagation_prob_deter: normalised propagation probability (value) from each node (key) to its successors, for deterministic dynamics (trivial)
         edge_slope_deter: normalised propagation probability (value) of each edge (key), for deterministic dynamics (trivial)
     '''
-    g_prob, g_deter, propagation_prob, edge_slope, propagation_prob_deter = deepcopy(g), nx.DiGraph(), {}, {}, {}
-    #g_prob.add_nodes_from(g.nodes)
-    g_deter.add_nodes_from(g.nodes)
+    g_landscape = {'probabilistic': create_probabilistic_lattice(g, t), 'deterministic': nx.DiGraph()}
+    propagation = {'probabilistic': compute_propagation_probabilities(g_landscape['probabilistic'], t), 'deterministic': {}}
+    edge_slope = {'probabilistic': compute_edge_slope(g_landscape['probabilistic'], t), 'deterministic': {}}
+    g_landscape['deterministic'].add_nodes_from(g.nodes)
     for i in g:
-        # Compute propagation probabilities out of node i
-        prob_i, propagation_prob[i], propagation_prob_deter[i], next_nodes = {}, [], [], [j for j in g.successors(i) if t[i]>t[j]]
-        if len(next_nodes):
-            for j in g.successors(i):
-                if t[i]>t[j]:
-                    propagation_prob[i].append(t[i]-t[j])
-                    prob_i[j] = t[i]-t[j]
-                    propagation_prob_deter[i] = [1]
-                    steepest_next = next_nodes[np.argmax(propagation_prob[i])]
-                    g_deter.add_edge(i, steepest_next)
-                else:
-                    prob_i[j] = 0
-                    g_prob.remove_edge(i,j)
-        sum_prob_i = sum(prob_i.values())
-        for j in prob_i:
-            prob_i[j] /= sum_prob_i
-        if prob_i == [0] and len(list(g.successors(i)))==1:
-            edge_slope[(i, list(g.successors(i))[0])] = 1
-        elif len(list(g.successors(i))) == 1:
-            propagation_prob[i] = [1]
-    # Redirect bidirectional edges
+        next_nodes = list(g.successors(i))
+        if next_nodes:
+            propagation['deterministic'][i] = [1]
+            steepest_next = next_nodes[np.argmax(propagation['probabilistic'][i])]
+            g_landscape['deterministic'].add_edge(i, steepest_next)
+    edge_slope['deterministic'] = {(i,j):1 for i,j in g_landscape['deterministic'].edges} # for deterministic SC calculations
+    return g_landscape, propagation, edge_slope
+
+def create_probabilistic_lattice(g, t):
+    g_prob = deepcopy(g)
+    for i in g:
+        for j in g.successors(i):
+            if t[i] <= t[j]:
+                g_prob.remove_edge(i,j)
     for i,j in g_prob.edges:
         if (j,i) in g_prob.edges:
             if t[j] < t[i]:
                 g_prob.remove_edge(j,i)
                 if len(g_prob.successors(j)) == 0:
-                    g_prob.add_edge(j, (j[0], j[1]-1))
+                    g_prob.add_edge(j,(j[0],j[1]-1))
             else:
+                g_prob.remove_edge(i,j)
                 if len(g_prob.successors(i)) == 0:
-                    g_prob.add_edge(i, (i[0]-i[1]-1))
-        #g_prob.add_edge(i, j, weight=edge_slope[i,j])
-    edge_slope_deter = {(i,j):1 for i,j in g_deter.edges} # for deterministic SC calculations
-    return g_prob, propagation_prob, edge_slope, g_deter, propagation_prob_deter, edge_slope_deter
+                    g_prob.add_edge(i,(i[0],i[1]-1))
+    return g_prob
+
+def compute_propagation_probabilities(g, t):
+    ep = {}
+    for i in g:
+        ep[i] = []
+        for j in g.successors(i):
+            if t[i] > t[j]:
+                ep[i].append(t[i]-t[j])
+        if len(list(g.successors(i)))==1:
+            ep[i] = [1]
+    return ep
+
+def compute_edge_slope(g, t):
+    ep = {}
+    for i in g:
+        epi = {j: max(0,t[i]-t[j]) for j in g.successors(i)}
+        sum_probs = sum(epi.values())
+        for j in epi:
+            if epi[j]:
+                ep[(i,j)] = epi[j]/sum_probs
+        if epi==[0] and len(list(g.successors(i)))==1:
+            ep[(i,list(g.successors(i))[0])] = 1
+    return ep
+
 
 ### Simulation functions
 def declare_simulation_variables(g: nx.DiGraph):
@@ -139,9 +113,8 @@ def declare_simulation_variables(g: nx.DiGraph):
         g: landscape lattice, type=nx.DiGraph
     Outputs
         state_: number of particles per node, type=dict
-        coupling_: distances covered by particles exchanged between nodes, type=dict
-        current_av_: nodes participating in the currently occuring avalanche, empty during accumulation phase, type=list
-        branches_: length of branches described by the currently occuring avalanche, type=dict
+        current_av_: nodes participating in the ongoing avalanche, empty during accumulation phase, type=list
+        branches_: length of branches described by the ongoing avalanche, type=dict
         new_av_: nodes having received particles during the last time step, type=list
         size_: list of avalanche sizes having occured during the entire simulation, type=list
         exit_: number of particles having exited the landscae during the entire simulation, type=int
@@ -343,7 +316,29 @@ def generate_topography(g: nx.DiGraph, tmat: dict, v: dict, a: float, a_std: flo
 
 # Simulation functions
 
-def sandpile_new_form(g, v, propagation_probability, state, coupling, current_av, branches, old_active, size, bulk_nodes):
+def sandpile_simulation_step(g, v, prop_prob, state, coupling, current_av, branches, old_active, size, bulk_nodes):
+    '''
+    Run a single sandpile simulation step.
+    Inputs
+        g: landscape lattice, type=nx.DiGraph
+        v: landscape vegetation, type=dict
+        prop_prob: list of probabilities of propagation (values) out of every node (key), type=dict
+        state: number of particles (value) per node (key), type=dict
+        coupling: distances covered by particles exchanged between nodes, type=dict
+        current_av: list of nodes participating in the ongoing avalanche, empty during accumulation phase, type=list
+        branches: length of branches described by the ongoing avalanche, type=dict
+        old_active: updated nodes having received particles during the previous time step, type=list
+        size_: list of avalanche sizes having occured during the entire simulation, type=list
+        exit_: number of particles having exited the landscae during the entire simulation, type=int
+        bulk_nodes: list of the nodes that are not part of the outflow layer
+    Outputs
+        state: updated number of particles (value) per node (key), after a single sandpile simulation step
+        coupling: updated distances covered by particles exchanged between nodes, type=dict
+        current_av: updated list of nodes participating in the ongoing avalanche, empty during accumulation phase, type=list
+        branches: updated length of branches described by the ongoing avalanche, type=dict
+        new_active: updated list of nodes having received particles during the current time step, type=list
+        size: updated list of avalanche sizes having occured during the entire simulation, type=list
+    '''
     unstable, new_active = [node for node in old_active if state[node] >= g.out_degree(node)], []
     if len(unstable): # Relaxation phase
         for node1 in unstable:
@@ -351,7 +346,7 @@ def sandpile_new_form(g, v, propagation_probability, state, coupling, current_av
             if len(current_av) == 0:
                 current_av[node1] = 0
             if g.out_degree(node1):
-                spreading_scheme = Counter(random.choices(list(g.successors((node1))), weights=propagation_probability[(node1)], k=nb_partcl))
+                spreading_scheme = Counter(random.choices(list(g.successors((node1))), weights=prop_prob[(node1)], k=nb_partcl))
                 for node2 in spreading_scheme:
                     #if g.out_degree(node2):
                     state[node2] += np.sum(np.random.rand(spreading_scheme[node2]) > v[node2]/2)

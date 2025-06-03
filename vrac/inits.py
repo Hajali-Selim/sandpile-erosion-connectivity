@@ -647,7 +647,7 @@ def eff_steep(g, est):
         _ = gst.add_edge(i, est[i])
     return gst
 
-def eprob(g, e):
+def eprob(g, e):# eprob == propagation_probability
     ep = {}
     for i in g:
         ep[i] = []
@@ -658,7 +658,7 @@ def eprob(g, e):
             ep[i] = [1]
     return ep
 
-def eprob_map(g, e):
+def eprob_map(g, e):# eprob_map == edge_slope
     ep = {}
     for i in g:
         epi = {j: max(0,e[i]-e[j]) for j in g.successors(i)}
