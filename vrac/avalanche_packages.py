@@ -7,6 +7,5 @@ from functools import reduce
 from scipy.stats import pearsonr
 import pickle, random, itertools, sys
 from math import log
-from reliability.Fitters import Fit_Weibull_2P, Fit_Weibull_3P
 
 

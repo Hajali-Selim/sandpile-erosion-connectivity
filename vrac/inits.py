@@ -609,11 +609,12 @@ def eff_lattice(g, e): # this one (07.02.2025)
     geff.add_nodes_from(g.nodes)
     for i in g:
         for j in g.successors(i):
+            #print(i,j,e[i],e[j])
             if e[i] >= e[j]:
                 geff.add_edge(i,j)
     return geff
 
-def eff_lattice(g, e):
+def eff_lattice(g, e): # last one = robust one (written on 02.06.2025)
     geff = deepcopy(g)
     for i in g:
         for j in g.successors(i):
@@ -646,7 +647,7 @@ def eff_steep(g, est):
         _ = gst.add_edge(i, est[i])
     return gst
 
-def eprob(g, e):
+def eprob(g, e):# eprob == propagation_probability
     ep = {}
     for i in g:
         ep[i] = []
@@ -657,7 +658,7 @@ def eprob(g, e):
             ep[i] = [1]
     return ep
 
-def eprob_map(g, e):
+def eprob_map(g, e):# eprob_map == edge_slope
     ep = {}
     for i in g:
         epi = {j: max(0,e[i]-e[j]) for j in g.successors(i)}
