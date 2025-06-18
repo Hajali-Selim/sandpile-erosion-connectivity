@@ -1,11 +1,12 @@
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
-import random, pickle
+import random, pickle, powerlaw
 from copy import deepcopy
 from itertools import product, combinations
 from collections import Counter
 from scipy.stats import pearsonr
+from math import log10
 
 def matrix_to_dict(matrix: np.ndarray):
     '''
@@ -16,6 +17,16 @@ def matrix_to_dict(matrix: np.ndarray):
         for j in range(width):
             d[(j,59-i)] = matrix[i,j]
     return d
+
+def dict_to_matrix(d: dict):
+    '''
+    Convert dictionary data into matrix.
+    '''
+    matrix = np.zeros((60,20), float)
+    for i in range(60):
+        for j in range(20):
+            matrix[i] = d[(j,59-i)]
+    return matrix
 
 def generate_baseline_lattice(width: int, height: int):
     '''
@@ -50,7 +61,8 @@ def adapt_lattice_to_topography(g: nx.DiGraph, t: dict): # This seems to work, g
         propagation_prob_deter: normalised propagation probability (value) from each node (key) to its successors, for deterministic dynamics (trivial)
         edge_slope_deter: normalised propagation probability (value) of each edge (key), for deterministic dynamics (trivial)
     '''
-    g_landscape = {'probabilistic': create_probabilistic_lattice(g, t), 'deterministic': nx.DiGraph()}
+    g_landscape = {'probabilistic': create_probabilistic_lattice(g, t)}
+    g_landscape['deterministic'] = create_deterministic_lattice(g_landscape['probabilistic'], t)
     propagation = {'probabilistic': compute_propagation_probabilities(g_landscape['probabilistic'], t), 'deterministic': {}}
     edge_slope = {'probabilistic': compute_edge_slope(g_landscape['probabilistic'], t), 'deterministic': {}}
     g_landscape['deterministic'].add_nodes_from(g.nodes)
@@ -63,7 +75,16 @@ def adapt_lattice_to_topography(g: nx.DiGraph, t: dict): # This seems to work, g
     edge_slope['deterministic'] = {(i,j):1 for i,j in g_landscape['deterministic'].edges} # for deterministic SC calculations
     return g_landscape, propagation, edge_slope
 
-def create_probabilistic_lattice(g, t):
+def generate_lattice(g, t, dyn):
+    g_prob = generate_probabilistic_lattice(g,t)
+    if dyn == 'probabilistic':
+        return g_prob
+    elif dyn == 'deterministic':
+        return generate_deterministic_lattice(g_prob,t)
+    else:
+        print('Please enter either \'probabilistic\' or \'deterministic\' as a type of dynamics.')
+
+def generate_probabilistic_lattice(g, t):
     g_prob = deepcopy(g)
     for i in g:
         for j in g.successors(i):
@@ -81,29 +102,57 @@ def create_probabilistic_lattice(g, t):
                     g_prob.add_edge(i,(i[0],i[1]-1))
     return g_prob
 
-def compute_propagation_probabilities(g, t):
-    ep = {}
-    for i in g:
-        ep[i] = []
-        for j in g.successors(i):
-            if t[i] > t[j]:
-                ep[i].append(t[i]-t[j])
-        if len(list(g.successors(i)))==1:
-            ep[i] = [1]
-    return ep
+def generate_deterministic_lattice(g_prob, t):
+    g_deter, est = deepcopy(g_prob), {}
+    g_deter.remove_edges_from(list(g_prob.edges))
+    for i in g_prob:
+        next_nodes = list(g_prob.successors(i))
+        if len(next_nodes):
+            elev_nodes = np.array([t[k] for k in next_nodes])
+            min_elev = np.where(elev_nodes==np.min(elev_nodes))[0]
+            if len(min_elev)>1:
+                est[i] = (i[0],i[1]-1)
+            else:
+                est[i] = next_nodes[min_elev[0]]
+    for i in est:
+        _ = g_deter.add_edge(i, est[i])
+    return g_deter
 
-def compute_edge_slope(g, t):
-    ep = {}
-    for i in g:
-        epi = {j: max(0,t[i]-t[j]) for j in g.successors(i)}
-        sum_probs = sum(epi.values())
-        for j in epi:
-            if epi[j]:
-                ep[(i,j)] = epi[j]/sum_probs
-        if epi==[0] and len(list(g.successors(i)))==1:
-            ep[(i,list(g.successors(i))[0])] = 1
-    return ep
+def generate_propagation_probabilities(g_prob, t, dyn):
+    if dyn == 'probabilistic':
+        ep_prob = {}
+        for i in g_prob:
+            ep_prob[i] = []
+            for j in g_prob.successors(i):
+                if t[i] > t[j]:
+                    ep_prob[i].append(t[i]-t[j])
+            if len(list(g_prob.successors(i)))==1:
+                ep_prob[i] = [1]
+        return ep_prob
+    elif dyn == 'deterministic':
+        ep_deter = {}
+        for i in g_prob:
+            ep_deter[i] = [1]
+        return ep_deter
+    else:
+        print('Please enter either \'probabilistic\' or \'deterministic\' as a type of dynamics.')
 
+def generate_edge_slopes(g, t, dyn):
+    if dyn == 'probabilistic':
+        ep = {}
+        for i in g:
+            epi = {j: max(0,t[i]-t[j]) for j in g.successors(i)}
+            sum_probs = sum(epi.values())
+            for j in epi:
+                if epi[j]:
+                    ep[(i,j)] = epi[j]/sum_probs
+            if epi==[0] and len(list(g.successors(i)))==1:
+                ep[(i,list(g.successors(i))[0])] = 1
+        return ep
+    elif dyn == 'deterministic':
+        return {(i,j):1 for i,j in g.edges}
+    else:
+        print('Please enter either \'probabilistic\' or \'deterministic\' as a type of dynamics.')
 
 ### Simulation functions
 def declare_simulation_variables(g: nx.DiGraph):
@@ -261,6 +310,7 @@ def generate_vegetation(g: nx.DiGraph, ratio_v: float, pclust: float, v_source: 
                 node = random.choice(list(free_nodes))
         else:
             node = random.choice(list(free_nodes))
+    return v
 
 def compute_landscape_vegetation_score(vmat: np.ndarray):
     '''
@@ -282,37 +332,25 @@ def compute_landscape_vegetation_score(vmat: np.ndarray):
     land_scores[59,0] = 3*vmat[59,0] + vmat[59,1] + vmat[58,0]
     land_scores[0,19] = 3*vmat[0,19] + vmat[0,18] + vmat[1,19]
     land_scores[59,19] = 3*vmat[59,19] + vmat[58,19] + vmat[59,18]
-    land_scores /= 100
     return land_scores
 
-def generate_topography(g: nx.DiGraph, tmat: dict, v: dict, a: float, a_std: float, b: float):
+def generate_topography(tmat: dict, v: dict, a: float, a_std: float, b: float):
     '''
     Generate a topography
     Inputs
-        g: baseline lattice, type=nx.DiGraph
-        tmax: empirical landscape topography matrix to be used to generate planar elevation, type=dict
+        tmax: empirical landscape topography matrix, type=dict
         v: generated vegetation, type=dict
         a: slope of the linear regression between vegetation density scores and microtopography, type=float
         a_std: standard deviation of the slope a, type=float
         b: intercept of the linear regression between vegetation density scores and microtopography, type=float
     Output
         t_gen: generated topography, type=dict
+        mt_gen: generated microtopography, type=dict
     '''
-    v_score, g_x, g_y, plane = {}, list(g)[-1][0], list(g)[-1][1], np.sum(tmat,axis=1)/20
-    extended_plane = sum([list(plane+k*(1-.8*plane[-1])) for k in reversed(range(int(g_y/60)+1))],[])
-    for i in range(1,g_x):
-        for j in range(1,g_y):
-            v_score[i,j] = v[i,j] + v[i-1,j]+ v[i+1,j] + v[i,j-1] + v[i,j+1]
-            v_score[0,j] = 2*v[0,j] + v[1,j] + v[0,j-1] + v[0,j+1]
-            v_score[g_x,j] = 2*v[g_x,j] + v[g_x-1,j] + v[g_x,j-1] + v[g_x,j+1]
-        v_score[i,0] = 2*v[i,0] + v[i-1,0] + v[i+1,0] + v[i,1]
-        v_score[i,g_y] = 2*v[i,g_y] + v[i-1,g_y] + v[i+1,g_y] + v[i,g_y-1]
-    v_score[0,g_y] = 3*v[0,g_y] + v[1,g_y] + v[0,g_y-1]
-    v_score[g_x,g_y] = 3*v[g_x,g_y] + v[g_x-1,g_y] + v[g_x,g_y-1]
-    v_score[0,0] = 3*v[0,0] + v[1,0] + v[0,1]
-    v_score[g_x,0] = 3*v[g_x,0] + v[g_x-1,0] + v[g_x,1]
-    t_gen = {(i,j): v_score[i,j]*a + (2*random.random()-1)*a_std/2 + b + extended_plane[j] for i,j in g}
-    return t_gen
+    v_score = compute_landscape_vegetation_score(dict_to_matrix(v))
+    mt_gen = v_score*a + b + (2*np.random.random((60,20))-1)*a_std/2
+    t_gen = mt_gen + np.array(list(np.mean(tmat, axis=1) for k in range(20))).T
+    return t_gen, mt_gen
 
 # Simulation functions
 
@@ -382,3 +420,10 @@ def sandpile_simulation_step(g, v, prop_prob, state, coupling, current_av, branc
 def SCFC(sc, fc, bulk_):
     return pearsonr(list(sc[i] for i in bulk_), list(fc[i] for i in bulk_))[0]
 
+def drop_zeros(a_list):
+    return a_list[~np.isnan(a_list)]
+
+def log_binning_with_input(counter_dict, overall_binning):
+    bin_means_y = np.histogram(list(counter_dict.keys()), bins=overall_binning, weights=list(counter_dict.values()))[0] / np.histogram(list(counter_dict.keys()), bins=overall_binning)[0]
+    bin_means_x = np.histogram(list(counter_dict.keys()), bins=overall_binning, weights=list(counter_dict.keys()))[0] / np.histogram(list(counter_dict.keys()), bins=overall_binning)[0]
+    return bin_means_x, bin_means_y
