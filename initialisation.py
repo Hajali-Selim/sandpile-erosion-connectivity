@@ -7,6 +7,7 @@ from itertools import product, combinations
 from collections import Counter
 from scipy.stats import pearsonr
 from math import log10
+import pandas as pd
 
 def matrix_to_dict(matrix: np.ndarray):
     '''
